@@ -10,15 +10,10 @@
   .wrap { max-width: 880px; margin: 0 auto; height: 100vh; display:flex; flex-direction:column; }
   header { padding:14px 16px; border-bottom:1px solid #1e1e20; display:flex; align-items:center; gap:10px; }
   .logo { width:28px; height:28px; border-radius:6px; background:linear-gradient(135deg, var(--gold), #b49300); }
-  .logo-img {
-  width: 45px;
-  height: 45px;
-  border-radius: 7px;
-  object-fit: contain;
-}
+  .logo-img { width:45px; height:45px; border-radius:7px; object-fit:contain; }
   .brand { font-weight:700; letter-spacing:0.3px; }
   #chat { flex:1; overflow:auto; padding:16px; }
-  .msg { margin:10px 0; padding:12px 14px; border-radius:12px; max-width: 85%; white-space:pre-wrap; }
+  .msg { margin:10px 0; padding:12px 14px; border-radius:12px; max-width:85%; white-space:pre-wrap; }
   .user { background:#1b1b1d; margin-left:auto; border:1px solid #2b2b2e; }
   .bot { background:var(--panel); border:1px solid #232326; }
   .hint { color:#bdbdbd; font-size:13px; margin-top:4px;}
@@ -32,7 +27,7 @@
 <body>
   <div class="wrap">
     <header>
-     <img src="https://communities.kajabi-cdn.com/cdn-cgi/image/width=80,height=80,fit=cover/user-profile/1959ee6c-e032-4c8f-9784-e248409e3244" class="logo-img" alt="Trading Singularity Logo" />
+      <img src="https://communities.kajabi-cdn.com/cdn-cgi/image/width=80,height=80,fit=cover/user-profile/1959ee6c-e032-4c8f-9784-e248409e3244" class="logo-img" alt="Trading Singularity Logo" />
       <div>
         <div class="brand">Trading Singularity AI Coach</div>
         <div class="sub">Discipline • Data • Compounding</div>
@@ -51,7 +46,7 @@
   </div>
 
 <script>
-const ENDPOINT = "https://ts-ai-coach-starter.vercel.app/api/chat"; // keep your URL
+const ENDPOINT = "https://ts-ai-coach-starter.vercel.app/api/chat"; // your API URL
 
 const chat = document.getElementById("chat");
 const input = document.getElementById("input");
@@ -77,7 +72,7 @@ I’ll help you:
 • Set weekly rules & routines
 • Improve compounding consistency
 
-Ask me: 
+Ask me:
 “Analyze my last 10 trades: entries, exits, R/R, and 2 habits to fix.”`);
 }
 welcome();
@@ -104,50 +99,57 @@ async function send() {
       })
     });
 
+    // If API returns an error status, surface it
     if (!res.ok) {
-      botDiv.textContent = "Error: coach temporarily unavailable.";
+      const txt = await res.text().catch(()=>"");
+      botDiv.textContent = `Error: ${txt || res.status}`;
       return;
     }
 
-    // Detect if server is streaming SSE or returning JSON
+    // JSON path (your current API)
     const ct = res.headers.get("content-type") || "";
-    const isStream = ct.includes("text/event-stream");
-
-    if (!isStream) {
-      // JSON response (your current API)
-      const json = await res.json().catch(() => ({}));
-      const reply = json.reply || "No reply.";
-      botDiv.textContent = reply;
-      history.push({ role: "assistant", content: reply });
+    if (ct.includes("application/json")) {
+      const json = await res.json().catch(()=> ({}));
+      if (json.error) {
+        botDiv.textContent = `Error: ${json.error}`;
+      } else {
+        const reply = json.reply || "No reply.";
+        botDiv.textContent = reply;
+        history.push({ role: "assistant", content: reply });
+      }
       return;
     }
 
-    // SSE streaming path (future upgrade)
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
-      for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (data === "[DONE]") continue;
-        try {
-          const json = JSON.parse(data);
-          const delta = json.choices?.[0]?.delta?.content ?? "";
-          if (delta) {
-            acc += delta;
-            botDiv.textContent = acc;
-            chat.scrollTop = chat.scrollHeight;
-          }
-        } catch {}
+    // SSE streaming path (for future upgrade)
+    if (res.body) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "[DONE]") continue;
+          try {
+            const json = JSON.parse(data);
+            const delta = json.choices?.[0]?.delta?.content ?? "";
+            if (delta) {
+              acc += delta;
+              botDiv.textContent = acc;
+              chat.scrollTop = chat.scrollHeight;
+            }
+          } catch {}
+        }
       }
+      if (acc) history.push({ role: "assistant", content: acc });
+    } else {
+      botDiv.textContent = "No response body.";
     }
-    if (acc) history.push({ role: "assistant", content: acc });
   } catch (e) {
-    botDiv.textContent = "Network error. Try again.";
+    botDiv.textContent = `Network error: ${e?.message || e}`;
   }
 }
 
